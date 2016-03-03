@@ -58,8 +58,6 @@ init([Actor]) ->
     %% Start off with no objects.
     Objects = dict:new(),
 
-    lager:info("Generated actor: ~p", [Actor]),
-
     {ok, #state{objects=Objects, counter=Counter, actor=Actor}}.
 
 %% @private
@@ -87,8 +85,6 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
 
     %% Store updated version of object.
     Objects = dict:store(Key, Object, Objects0),
-
-    lager:info("Storing object ~p with version: ~p", [Key, Version]),
 
     {reply, ok, State#state{counter=Counter, objects=Objects}};
 handle_call(Msg, _From, State) ->
