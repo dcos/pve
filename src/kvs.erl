@@ -18,7 +18,6 @@
 
 %% State record.
 -record(state, {actor,
-                counter,
                 knowledge,
                 objects}).
 
@@ -28,6 +27,9 @@
 
 %% Types.
 -type actor() :: atom().
+
+%% Use the vector!
+-define(VECTOR, pv).
 
 %%%===================================================================
 %%% API
@@ -55,13 +57,13 @@ put(Key, Value) ->
 %% @private
 -spec init([actor()]) -> {ok, #state{}}.
 init([Actor]) ->
-    %% Initialize the per-replica counter at zero.
-    Counter = 0,
-
     %% Start off with no objects.
     Objects = dict:new(),
 
-    {ok, #state{objects=Objects, counter=Counter, actor=Actor}}.
+    %% Start off with zero knowledge.
+    Knowledge = ?VECTOR:new(),
+
+    {ok, #state{knowledge=Knowledge, objects=Objects, actor=Actor}}.
 
 %% @private
 -spec handle_call(term(), {pid(), term()}, #state{}) ->
@@ -77,11 +79,10 @@ handle_call({get, Key}, _From, #state{objects=Objects0}=State) ->
     end,
     {reply, Result, State};
 handle_call({put, Key, Value}, _From, #state{actor=Actor,
-                                             counter=Counter0,
+                                             knowledge=Knowledge0,
                                              objects=Objects0}=State) ->
     %% Increment the version.
-    Counter = Counter0 + 1,
-    Version = {Actor, Counter},
+    {ok, Version, Knowledge} = ?VECTOR:increment(Actor, Knowledge0),
 
     %% Generate object payload and store.
     Object = #object{version=Version, payload=Value},
@@ -89,7 +90,7 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
     %% Store updated version of object.
     Objects = dict:store(Key, Object, Objects0),
 
-    {reply, ok, State#state{counter=Counter, objects=Objects}};
+    {reply, ok, State#state{objects=Objects, knowledge=Knowledge}};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled messages: ~p", [Msg]),
     {reply, ok, State}.
