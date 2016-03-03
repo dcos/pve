@@ -27,6 +27,8 @@
 
 %% Types.
 -type actor() :: atom().
+-type key()   :: term().
+-type value() :: term().
 
 %% Use the vector!
 -define(VECTOR, pv).
@@ -40,13 +42,13 @@
 start_link(Actor) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Actor], []).
 
-%% @todo spec
-%% @todo doc
+%% @doc Get a value from the KVS.
+-spec get(key()) -> value().
 get(Key) ->
     gen_server:call(?MODULE, {get, Key}, infinity).
 
-%% @todo spec
-%% @todo doc
+%% @doc Store a value in the KVS.
+-spec put(key(), value()) -> ok.
 put(Key, Value) ->
     gen_server:call(?MODULE, {put, Key, Value}, infinity).
 
