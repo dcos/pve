@@ -7,6 +7,7 @@
          increment/2,
          dominates/2,
          merge/2,
+         aggregate/2,
          strict_dominates/2]).
 
 -dialyzer([{nowarn_function, [compare/3]}, no_improper_lists]).
@@ -38,7 +39,7 @@ increment(Actor, Vector0) ->
             0
     end,
     Counter = Counter0 + 1,
-    Vector = orddict:store(Actor, Counter, Vector0),
+    Vector = orddict:store(Actor, #state{counter=Counter}, Vector0),
     {ok, {Actor, Counter}, Vector}.
 
 %% @doc Determine if `Vector1' strictly dominates `Vector2'.
@@ -64,6 +65,11 @@ merge(Vector1, Vector2) ->
                        max(Value1, Value2)
                end,
     orddict:merge(MergeFun, Vector1, Vector2).
+
+%% @doc Accumulate knowledge for an update into vector.
+-spec aggregate(update(), vector()) -> vector().
+aggregate({Actor, Count}, Vector) ->
+    orddict:store(Actor, Count, Vector).
 
 %% Internal functions.
 
@@ -96,7 +102,7 @@ merge_test() ->
     ?assertMatch({b, 1}, UpdateB1),
 
     A1B1 = merge(A1, B1),
-    ?assertEqual(orddict:from_list([{a, 1}, {b, 1}]), A1B1).
+    ?assertEqual(orddict:from_list([{a, {state, 1}}, {b, {state, 1}}]), A1B1).
 
 dominates_test() ->
     A0 = new(),
