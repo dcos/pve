@@ -28,8 +28,7 @@ value() ->
 %% Initial state.
 
 initial_state() ->
-    Objects = dict:new(),
-    #state{status=init, objects=Objects, replicas=[]}.
+    #state{status=init, replicas=[]}.
 
 %% Launch multiple replicas.
 
@@ -41,13 +40,14 @@ provision_args(_S) ->
     [elements([a, b, c])].
 
 provision_pre(#state{replicas=Replicas, status=init}, [Actor]) ->
-    not lists:member(Actor, [A || {A, _} <- Replicas]);
+    not lists:member(Actor, [A || {A, _, _} <- Replicas]);
 provision_pre(#state{status=running}, [_Actor]) ->
     false.
 
 provision_next(#state{replicas=Replicas0}=S, Pid, [Actor]) ->
-    Replicas = Replicas0 ++ [{Actor, Pid}],
-    Provisioned = [A || {A, _} <- Replicas],
+    Objects = dict:new(),
+    Replicas = Replicas0 ++ [{Actor, Pid, Objects}],
+    Provisioned = [A || {A, _, _} <- Replicas],
     Status = case Provisioned of
         [a, b, c] ->
             running;
@@ -56,30 +56,47 @@ provision_next(#state{replicas=Replicas0}=S, Pid, [Actor]) ->
     end,
     S#state{status=Status, replicas=Replicas}.
 
-%% Put operation.
+%% Get operation.
 
 get(Pid, Key) ->
     kvs:get(Pid, Key).
 
-get_args(#state{replicas=Replicas, objects=Objects0}) ->
-    Keys = dict:fetch_keys(Objects0),
-    Pids = [P || {_, P} <- Replicas],
-    ?LET({Pid, Key}, {elements(Pids), elements(Keys)},
+get_args(#state{replicas=Replicas}) ->
+    Pids = [P || {_, P, _} <- Replicas],
+    ?LET({Pid, Key}, {elements(Pids), key()},
          begin
             [Pid, Key]
          end).
 
-get_pre(#state{status=running, objects=Objects0}) ->
-    Keys = dict:fetch_keys(Objects0),
-    length(Keys) > 0;
+get_pre(#state{status=running}) ->
+    true;
 get_pre(#state{status=init}) ->
     false.
+
+get_post(#state{replicas=Replicas0}, [Pid, Key], {ok, not_found}) ->
+    {_Actor, Pid, Objects0} = lists:keyfind(Pid, 2, Replicas0),
+    case dict:is_key(Key, Objects0) of
+        false ->
+            true;
+        true ->
+            false
+    end;
+get_post(#state{replicas=Replicas0}, [Pid, Key], {ok, Value}) ->
+    {_Actor, Pid, Objects0} = lists:keyfind(Pid, 2, Replicas0),
+    case dict:find(Key, Objects0) of
+        {ok, V} ->
+            V =:= Value;
+        _ ->
+            false
+    end.
+
+%% Put operation.
 
 put(Pid, Key, Value) ->
     kvs:put(Pid, Key, Value).
 
 put_args(#state{replicas=Replicas}) ->
-    Pids = [P || {_, P} <- Replicas],
+    Pids = [P || {_, P, _} <- Replicas],
     ?LET({Pid, Key, Value}, {elements(Pids), key(), value()},
          begin
             [Pid, Key, Value]
@@ -90,9 +107,13 @@ put_pre(#state{status=init}) ->
 put_pre(#state{status=running}) ->
     true.
 
-put_next(#state{objects=Objects0}=S, _Res, [_Pid, Key, Value]) ->
+put_next(#state{replicas=Replicas0}=S, _Res, [Pid, Key, Value]) ->
+    {Actor, Pid, Objects0} = lists:keyfind(Pid, 2, Replicas0),
     Objects = dict:store(Key, Value, Objects0),
-    S#state{objects=Objects}.
+    Replicas = lists:keyreplace(Pid, 2, Replicas0, {Actor, Pid, Objects}),
+    S#state{replicas=Replicas}.
+
+%% Properties.
 
 prop_sequential() ->
     eqc:quickcheck(?SETUP(fun() ->
