@@ -13,8 +13,8 @@
          code_change/3]).
 
 %% API
--export([put/2,
-         get/1]).
+-export([put/3,
+         get/2]).
 
 %% State record.
 -record(state, {actor,
@@ -40,17 +40,17 @@
 %% @doc Start and link to calling process.
 -spec start_link(actor())-> {ok, pid()} | ignore | {error, term()}.
 start_link(Actor) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Actor], []).
+    gen_server:start_link(?MODULE, [Actor], []).
 
 %% @doc Get a value from the KVS.
--spec get(key()) -> value().
-get(Key) ->
-    gen_server:call(?MODULE, {get, Key}, infinity).
+-spec get(pid(), key()) -> value().
+get(Pid, Key) ->
+    gen_server:call(Pid, {get, Key}, infinity).
 
 %% @doc Store a value in the KVS.
--spec put(key(), value()) -> ok.
-put(Key, Value) ->
-    gen_server:call(?MODULE, {put, Key, Value}, infinity).
+-spec put(pid(), key(), value()) -> ok.
+put(Pid, Key, Value) ->
+    gen_server:call(Pid, {put, Key, Value}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
