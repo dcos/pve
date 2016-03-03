@@ -26,12 +26,15 @@
 -record(object, {version,
                  payload}).
 
+%% Types.
+-type actor() :: atom().
+
 %%%===================================================================
 %%% API
 %%%===================================================================
 
 %% @doc Start and link to calling process.
--spec start_link(list())-> {ok, pid()} | ignore | {error, term()}.
+-spec start_link(actor())-> {ok, pid()} | ignore | {error, term()}.
 start_link(Actor) ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [Actor], []).
 
@@ -50,7 +53,7 @@ put(Key, Value) ->
 %%%===================================================================
 
 %% @private
--spec init([]) -> {ok, #state{}}.
+-spec init([actor()]) -> {ok, #state{}}.
 init([Actor]) ->
     %% Initialize the per-replica counter at zero.
     Counter = 0,
