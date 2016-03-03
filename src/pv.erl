@@ -10,6 +10,10 @@
          aggregate/2,
          strict_dominates/2]).
 
+-behaviour(vector).
+
+-include("vector.hrl").
+
 -dialyzer([{nowarn_function, [compare/3]}, no_improper_lists]).
 
 %% Record specifications.
@@ -19,8 +23,10 @@
 -type actor()   :: atom().
 -type count()   :: non_neg_integer().
 -type update()  :: {actor(), count()}.
--type state()   :: #state{counter :: count()}.
 -type vector()  :: orddict:orddict(actor(), state()).
+-type state()   :: #state{counter :: count()}.
+
+-export_type([actor/0, update/0, vector/0]).
 
 %% Implementation.
 
