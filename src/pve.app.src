@@ -1,0 +1,17 @@
+{application, pve,
+ [{description, "Predecessor vectors with exceptions in Erlang"},
+  {vsn, "0.0.1"},
+  {registered, []},
+  {mod, {pve_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    lager
+   ]},
+  {env,[]},
+  {modules, []},
+
+  {contributors, []},
+  {licenses, []},
+  {links, []}
+ ]}.
