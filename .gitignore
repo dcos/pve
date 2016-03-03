@@ -1,3 +1,6 @@
 _build/
 TEST-*
 log/
+eqc*
+*eqc
+.eqc*
