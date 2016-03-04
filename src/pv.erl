@@ -12,7 +12,7 @@
 
 -behaviour(vector).
 
--dialyzer([{nowarn_function, [compare/3]}, no_improper_lists]).
+-dialyzer([{nowarn_function, [strictly_dominates/2, dominates/2]}]).
 
 %% Record specifications.
 -record(state, {counter}).
@@ -49,11 +49,29 @@ generate(Actor, Vector0) ->
 %% @doc Determine if a vector or an version is dominated by another
 %%      vector.
 -spec strictly_dominates(version() | vector(), vector()) -> boolean().
+strictly_dominates({Actor, Count}, Vector) ->
+    case orddict:find(Actor, Vector) of
+        {ok, #state{counter=Counter}} ->
+            Counter > Count;
+        _ ->
+            false
+    end;
+strictly_dominates([], Vector2) when Vector2 =/= [] ->
+    true;
 strictly_dominates(Vector1, Vector2) ->
-    Comparator = fun(Value1, Value2) ->
-                     Value1 > Value2
-                 end,
-    compare(Comparator, Vector1, Vector2).
+    FoldFun = fun(Actor1, #state{counter=Count1}, {Dominates, AtLeastOneStrict}) ->
+                      case orddict:find(Actor1, Vector2) of
+                          {ok, #state{counter=Count2}} ->
+                              {Count2 >= Count1 andalso Dominates,
+                               Count2 > Count1 orelse AtLeastOneStrict};
+                          error ->
+                              {false andalso Dominates,
+                               false orelse AtLeastOneStrict}
+                      end
+              end,
+    {Dominates, AtLeastOneStrict} = orddict:fold(FoldFun, {true, false}, Vector1),
+    MoreElements = orddict:size(Vector2) > orddict:size(Vector1),
+    Dominates andalso (AtLeastOneStrict orelse MoreElements).
 
 %% @doc Determine if a vector or an version is dominated by another
 %%      vector.
@@ -66,10 +84,15 @@ dominates({Actor, Count}, Vector) ->
             false
     end;
 dominates(Vector1, Vector2) ->
-    Comparator = fun(Value1, Value2) ->
-                     Value1 >= Value2
-                 end,
-    compare(Comparator, Vector1, Vector2).
+    FoldFun = fun(Actor1, #state{counter=Count1}, AccIn) ->
+                      case orddict:find(Actor1, Vector2) of
+                          {ok, #state{counter=Count2}} ->
+                              Count2 >= Count1 andalso AccIn;
+                          error ->
+                              false andalso AccIn
+                      end
+              end,
+    orddict:fold(FoldFun, true, Vector1).
 
 %% @doc Merge two vectors.
 -spec merge(vector(), vector()) -> vector().
@@ -85,18 +108,6 @@ learn({Actor, Count}, Vector) ->
     orddict:store(Actor, #state{counter=Count}, Vector).
 
 %% Internal functions.
-
-%% @private
-compare(Comparator, Vector1, Vector2) ->
-    FoldFun = fun(Actor1, #state{counter=Count1}, AccIn) ->
-                      case orddict:find(Actor1, Vector2) of
-                          {ok, #state{counter=Count2}} ->
-                              Comparator(Count2, Count1) andalso AccIn;
-                          error ->
-                              false andalso AccIn
-                      end
-              end,
-    orddict:fold(FoldFun, true, Vector1).
 
 -ifdef(TEST).
 
@@ -145,6 +156,9 @@ dominates_test() ->
     ?assertMatch(true, dominates(A0, B1)),
     ?assertMatch(true, strictly_dominates(A0, B1)),
     ?assertMatch(true, dominates(B1, B1)),
-    ?assertMatch(false, dominates(A1, B1)).
+    ?assertMatch(false, dominates(A1, B1)),
+
+    {ok, _, A1B2} = generate(b, merge(B1, A1)),
+    ?assertMatch(true, strictly_dominates(A1, A1B2)).
 
 -endif.
