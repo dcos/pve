@@ -4,9 +4,9 @@
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
 %% Types from vector types.
--type vector() :: pv:vector().
--type update() :: pv:update().
--type actor()  :: pv:actor().
+-type vector() :: pv:vector() | pve:vector().
+-type update() :: pv:update() | pve:update().
+-type actor()  :: pv:actor()  | pve:actor().
 
 %% @doc Generate a new predecessor vector.
 -callback new() -> vector().
