@@ -27,9 +27,9 @@ packageclean:
 ## Test targets
 ##
 
-check: test xref dialyzer lint eqc
+check: test xref dialyzer lint
 
-test: ct eunit
+test: ct eunit eqc
 
 lint:
 	${REBAR} as lint lint

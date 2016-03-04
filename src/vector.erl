@@ -1,27 +1,30 @@
-%% @doc Version vector interface.
+%% @doc Predecessor vector interface.
 
 -module(vector).
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
 %% Types from vector types.
--type vector() :: pv:vector() | pve:vector().
--type update() :: pv:update() | pve:update().
--type actor()  :: pv:actor()  | pve:actor().
+-type vector()    :: pv:vector() | pve:vector().
+-type version()   :: pv:version() | pve:version().
+-type actor()     :: pv:actor() | pve:actor().
 
 %% @doc Generate a new predecessor vector.
 -callback new() -> vector().
 
-%% @doc Increment a predecessor vector and return the object's version.
--callback increment(actor(), vector()) -> {ok, update(), vector()}.
+%% @doc Generate a new version, return the version and the updated
+%%      predecessor vector.
+-callback generate(actor(), vector()) -> {ok, version(), vector()}.
 
-%% @doc Determine if `Vector1' strictly dominates `Vector2'.
--callback strict_dominates(vector(), vector()) -> boolean().
+%% @doc Determine if a vector or an version is dominated by another
+%%      vector.
+-callback strictly_dominates(version() | vector(), vector()) -> boolean().
 
-%% @doc Determine if `Vector1' dominates `Vector2'.
--callback dominates(vector(), vector()) -> boolean().
+%% @doc Determine if a vector or an version is dominated by another
+%%      vector.
+-callback dominates(version() | vector(), vector()) -> boolean().
 
 %% @doc Merge two vectors.
 -callback merge(vector(), vector()) -> vector().
 
-%% @doc Accumulate knowledge for an update into vector.
--callback learn(update(), vector()) -> vector().
+%% @doc Accumulate knowledge for an version into vector.
+-callback learn(version(), vector()) -> vector().

@@ -4,11 +4,11 @@
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
 -export([new/0,
-         increment/2,
+         generate/2,
          dominates/2,
          merge/2,
          learn/2,
-         strict_dominates/2]).
+         strictly_dominates/2]).
 
 -behaviour(vector).
 
@@ -20,11 +20,11 @@
 %% Type specifications.
 -type actor()   :: atom().
 -type count()   :: non_neg_integer().
--type update()  :: {actor(), count()}.
+-type version() :: {actor(), count()}.
 -type vector()  :: orddict:orddict(actor(), state()).
 -type state()   :: #state{counter :: count()}.
 
--export_type([actor/0, update/0, vector/0]).
+-export_type([actor/0, version/0, vector/0]).
 
 %% Implementation.
 
@@ -33,9 +33,9 @@
 new() ->
     orddict:new().
 
-%% @doc Increment a predecessor vector and return the object's version.
--spec increment(actor(), vector()) -> {ok, update(), vector()}.
-increment(Actor, Vector0) ->
+%% @doc Generate a predecessor vector and return the object's version.
+-spec generate(actor(), vector()) -> {ok, version(), vector()}.
+generate(Actor, Vector0) ->
     Counter0 = case orddict:find(Actor, Vector0) of
         {ok, #state{counter=C}} ->
             C;
@@ -46,16 +46,25 @@ increment(Actor, Vector0) ->
     Vector = orddict:store(Actor, #state{counter=Counter}, Vector0),
     {ok, {Actor, Counter}, Vector}.
 
-%% @doc Determine if `Vector1' strictly dominates `Vector2'.
--spec strict_dominates(vector(), vector()) -> boolean().
-strict_dominates(Vector1, Vector2) ->
+%% @doc Determine if a vector or an version is dominated by another
+%%      vector.
+-spec strictly_dominates(version() | vector(), vector()) -> boolean().
+strictly_dominates(Vector1, Vector2) ->
     Comparator = fun(Value1, Value2) ->
                      Value1 > Value2
                  end,
     compare(Comparator, Vector1, Vector2).
 
-%% @doc Determine if `Vector1' dominates `Vector2'.
--spec dominates(vector(), vector()) -> boolean().
+%% @doc Determine if a vector or an version is dominated by another
+%%      vector.
+-spec dominates(version() | vector(), vector()) -> boolean().
+dominates({Actor, Count}, Vector) ->
+    case orddict:find(Actor, Vector) of
+        {ok, #state{counter=Counter}} ->
+            Counter >= Count;
+        _ ->
+            false
+    end;
 dominates(Vector1, Vector2) ->
     Comparator = fun(Value1, Value2) ->
                      Value1 >= Value2
@@ -70,8 +79,8 @@ merge(Vector1, Vector2) ->
                end,
     orddict:merge(MergeFun, Vector1, Vector2).
 
-%% @doc Accumulate knowledge for an update into vector.
--spec learn(update(), vector()) -> vector().
+%% @doc Accumulate knowledge for an version into vector.
+-spec learn(version(), vector()) -> vector().
 learn({Actor, Count}, Vector) ->
     orddict:store(Actor, #state{counter=Count}, Vector).
 
@@ -79,15 +88,15 @@ learn({Actor, Count}, Vector) ->
 
 %% @private
 compare(Comparator, Vector1, Vector2) ->
-    FoldFun = fun(Actor2, #state{counter=Count2}, AccIn) ->
-                      case orddict:find(Actor2, Vector1) of
-                          {ok, #state{counter=Count1}} ->
-                              Comparator(Count1, Count2) andalso AccIn;
+    FoldFun = fun(Actor1, #state{counter=Count1}, AccIn) ->
+                      case orddict:find(Actor1, Vector2) of
+                          {ok, #state{counter=Count2}} ->
+                              Comparator(Count2, Count1) andalso AccIn;
                           error ->
                               false andalso AccIn
                       end
               end,
-    orddict:fold(FoldFun, true, Vector2).
+    orddict:fold(FoldFun, true, Vector1).
 
 -ifdef(TEST).
 
@@ -96,9 +105,9 @@ compare(Comparator, Vector1, Vector2) ->
 learn_test() ->
     A0 = new(),
 
-    %% Increment actor a.
-    {ok, UpdateA1, A1} = increment(a, A0),
-    ?assertMatch({a, 1}, UpdateA1),
+    %% Generate actor a.
+    {ok, VersionA1, A1} = generate(a, A0),
+    ?assertMatch({a, 1}, VersionA1),
 
     %% Learn.
     A12 = learn({a, 12}, A1),
@@ -108,13 +117,13 @@ learn_test() ->
 merge_test() ->
     A0 = new(),
 
-    %% Increment actor a.
-    {ok, UpdateA1, A1} = increment(a, A0),
-    ?assertMatch({a, 1}, UpdateA1),
+    %% Generate actor a.
+    {ok, VersionA1, A1} = generate(a, A0),
+    ?assertMatch({a, 1}, VersionA1),
 
-    %% Increment actor b.
-    {ok, UpdateB1, B1} = increment(b, A0),
-    ?assertMatch({b, 1}, UpdateB1),
+    %% Generate actor b.
+    {ok, VersionB1, B1} = generate(b, A0),
+    ?assertMatch({b, 1}, VersionB1),
 
     A1B1 = merge(A1, B1),
     ?assertEqual(orddict:from_list([{a, {state, 1}}, {b, {state, 1}}]), A1B1).
@@ -122,17 +131,20 @@ merge_test() ->
 dominates_test() ->
     A0 = new(),
 
-    %% Increment actor a.
-    {ok, UpdateA1, A1} = increment(a, A0),
-    ?assertMatch({a, 1}, UpdateA1),
-    ?assertMatch(true, dominates(A1, A0)),
+    %% Generate actor a.
+    {ok, VersionA1, A1} = generate(a, A0),
+    ?assertMatch({a, 1}, VersionA1),
+    ?assertMatch(true, dominates(A0, A1)),
 
-    %% Increment actor b.
-    {ok, UpdateB1, B1} = increment(b, A0),
-    ?assertMatch({b, 1}, UpdateB1),
-    ?assertMatch(true, dominates(B1, A0)),
-    ?assertMatch(true, strict_dominates(B1, A0)),
+    ?assertMatch(false, dominates(VersionA1, A0)),
+    ?assertMatch(true, dominates(VersionA1, A1)),
+
+    %% Generate actor b.
+    {ok, VersionB1, B1} = generate(b, A0),
+    ?assertMatch({b, 1}, VersionB1),
+    ?assertMatch(true, dominates(A0, B1)),
+    ?assertMatch(true, strictly_dominates(A0, B1)),
     ?assertMatch(true, dominates(B1, B1)),
-    ?assertMatch(false, dominates(B1, A1)).
+    ?assertMatch(false, dominates(A1, B1)).
 
 -endif.

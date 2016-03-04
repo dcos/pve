@@ -4,11 +4,11 @@
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
 -export([new/0,
-         increment/2,
+         generate/2,
          dominates/2,
          merge/2,
          learn/2,
-         strict_dominates/2]).
+         strictly_dominates/2]).
 
 -behaviour(vector).
 
@@ -18,12 +18,12 @@
 %% Type specifications.
 -type actor()     :: atom().
 -type count()     :: non_neg_integer().
--type update()    :: {actor(), count()}.
+-type version()   :: {actor(), count()}.
 -type exception() :: non_neg_integer().
 -type vector()    :: orddict:orddict(actor(), state()).
 -type state()     :: #state{counter :: count(), exceptions :: [exception()]}.
 
--export_type([actor/0, update/0, vector/0]).
+-export_type([actor/0, version/0, vector/0]).
 
 %% Implementation.
 
@@ -32,9 +32,9 @@
 new() ->
     orddict:new().
 
-%% @doc Increment a predecessor vector and return the object's version.
--spec increment(actor(), vector()) -> {ok, update(), vector()}.
-increment(Actor, Vector0) ->
+%% @doc Generate a predecessor vector and return the object's version.
+-spec generate(actor(), vector()) -> {ok, version(), vector()}.
+generate(Actor, Vector0) ->
     Counter0 = case orddict:find(Actor, Vector0) of
         {ok, #state{counter=C}} ->
             C;
@@ -46,8 +46,8 @@ increment(Actor, Vector0) ->
     {ok, {Actor, Counter}, Vector}.
 
 %% @doc Determine if `Vector1' strictly dominates `Vector2'.
--spec strict_dominates(vector(), vector()) -> boolean().
-strict_dominates(_Vector1, _Vector2) ->
+-spec strictly_dominates(vector(), vector()) -> boolean().
+strictly_dominates(_Vector1, _Vector2) ->
     {error, not_implemented}.
 
 %% @doc Determine if `Vector1' dominates `Vector2'.
@@ -60,8 +60,8 @@ dominates(_Vector1, _Vector2) ->
 merge(_Vector1, _Vector2) ->
     {error, not_implemented}.
 
-%% @doc Accumulate knowledge for an update into vector.
--spec learn(update(), vector()) -> vector().
+%% @doc Accumulate knowledge for an version into vector.
+-spec learn(version(), vector()) -> vector().
 learn({Actor, Count}, Vector) ->
     {Counter0, Exceptions0} = case orddict:find(Actor, Vector) of
         {ok, #state{counter=C, exceptions=E}} ->
@@ -98,9 +98,9 @@ learn_test() ->
     A0 = new(),
     B0 = new(),
 
-    %% Increment actor a.
-    {ok, UpdateA1, A1} = increment(a, A0),
-    ?assertMatch({a, 1}, UpdateA1),
+    %% Generate actor a.
+    {ok, VersionA1, A1} = generate(a, A0),
+    ?assertMatch({a, 1}, VersionA1),
 
     %% Learn.
     A4 = learn({a, 4}, A1),

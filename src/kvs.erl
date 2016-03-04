@@ -83,8 +83,8 @@ handle_call({get, Key}, _From, #state{objects=Objects0}=State) ->
 handle_call({put, Key, Value}, _From, #state{actor=Actor,
                                              knowledge=Knowledge0,
                                              objects=Objects0}=State) ->
-    %% Increment the version.
-    {ok, Version, Knowledge} = ?VECTOR:increment(Actor, Knowledge0),
+    %% Generate the version.
+    {ok, Version, Knowledge} = ?VECTOR:generate(Actor, Knowledge0),
 
     %% Generate object payload and store.
     Object = #object{version=Version, payload=Value},
