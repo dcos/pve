@@ -7,12 +7,10 @@
          increment/2,
          dominates/2,
          merge/2,
-         aggregate/2,
+         learn/2,
          strict_dominates/2]).
 
 -behaviour(vector).
-
--include("vector.hrl").
 
 -dialyzer([{nowarn_function, [compare/3]}, no_improper_lists]).
 
@@ -73,17 +71,17 @@ merge(Vector1, Vector2) ->
     orddict:merge(MergeFun, Vector1, Vector2).
 
 %% @doc Accumulate knowledge for an update into vector.
--spec aggregate(update(), vector()) -> vector().
-aggregate({Actor, Count}, Vector) ->
-    orddict:store(Actor, Count, Vector).
+-spec learn(update(), vector()) -> vector().
+learn({Actor, Count}, Vector) ->
+    orddict:store(Actor, #state{counter=Count}, Vector).
 
 %% Internal functions.
 
 %% @private
 compare(Comparator, Vector1, Vector2) ->
-    FoldFun = fun(Actor2, Count2, AccIn) ->
+    FoldFun = fun(Actor2, #state{counter=Count2}, AccIn) ->
                       case orddict:find(Actor2, Vector1) of
-                          {ok, Count1} ->
+                          {ok, #state{counter=Count1}} ->
                               Comparator(Count1, Count2) andalso AccIn;
                           error ->
                               false andalso AccIn
@@ -91,10 +89,21 @@ compare(Comparator, Vector1, Vector2) ->
               end,
     orddict:fold(FoldFun, true, Vector2).
 
-
 -ifdef(TEST).
 
 -include_lib("eunit/include/eunit.hrl").
+
+learn_test() ->
+    A0 = new(),
+
+    %% Increment actor a.
+    {ok, UpdateA1, A1} = increment(a, A0),
+    ?assertMatch({a, 1}, UpdateA1),
+
+    %% Learn.
+    A12 = learn({a, 12}, A1),
+
+    ?assertEqual(orddict:from_list([{a, {state, 12}}]), A12).
 
 merge_test() ->
     A0 = new(),

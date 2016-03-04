@@ -3,8 +3,6 @@
 -module(vector).
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
--include("vector.hrl").
-
 %% Types from vector types.
 -type vector() :: pv:vector().
 -type update() :: pv:update().
@@ -26,4 +24,4 @@
 -callback merge(vector(), vector()) -> vector().
 
 %% @doc Accumulate knowledge for an update into vector.
--callback aggregate(update(), vector()) -> vector().
+-callback learn(update(), vector()) -> vector().
