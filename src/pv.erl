@@ -97,8 +97,8 @@ dominates(Vector1, Vector2) ->
 %% @doc Merge two vectors.
 -spec merge(vector(), vector()) -> vector().
 merge(Vector1, Vector2) ->
-    MergeFun = fun(_Key, Value1, Value2) ->
-                       max(Value1, Value2)
+    MergeFun = fun(_Key, #state{counter=Count1}, #state{counter=Count2}) ->
+                       #state{counter=max(Count1, Count2)}
                end,
     orddict:merge(MergeFun, Vector1, Vector2).
 
