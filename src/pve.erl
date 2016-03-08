@@ -45,20 +45,51 @@ generate(Actor, Vector0) ->
     Vector = orddict:store(Actor, #state{counter=Counter}, Vector0),
     {ok, {Actor, Counter}, Vector}.
 
-%% @doc Determine if `Vector1' strictly dominates `Vector2'.
+%% @doc Determine if a vector or an version is dominated by another
+%%      vector.
 -spec strictly_dominates(vector(), vector()) -> boolean().
 strictly_dominates(_Vector1, _Vector2) ->
     {error, not_implemented}.
 
-%% @doc Determine if `Vector1' dominates `Vector2'.
--spec dominates(vector(), vector()) -> boolean().
+%% @doc Determine if a vector or an version is dominated by another
+%%      vector.
+-spec dominates(version() | vector(), vector()) -> boolean().
+dominates({Actor, Count}, Vector) ->
+    case orddict:find(Actor, Vector) of
+        {ok, #state{counter=Counter, exceptions=Exceptions}} ->
+            Counter >= Count andalso not lists:member(Count, Exceptions);
+        _ ->
+            false
+    end;
 dominates(_Vector1, _Vector2) ->
     {error, not_implemented}.
 
 %% @doc Merge two vectors.
 -spec merge(vector(), vector()) -> vector().
-merge(_Vector1, _Vector2) ->
-    {error, not_implemented}.
+merge(Vector1, Vector2) ->
+    MergeFun = fun(Key, #state{counter=Count1, exceptions=Exceptions1},
+                         #state{counter=Count2, exceptions=Exceptions2}) ->
+
+                       %% Take the max of the counter.
+                       Max = max(Count1, Count2),
+
+                       %% Exceptions from Vector1 continue being
+                       %% exceptions if they aren't dominated by Vector2.
+                       E1 = lists:filter(fun(Version) ->
+                                            not dominates({Key, Version}, Vector2)
+                                    end, Exceptions1),
+
+                       %% Same, the other direction.
+                       E2 = lists:filter(fun(Version) ->
+                                            not dominates({Key, Version}, Vector1)
+                                    end, Exceptions2),
+
+                       %% Merge.
+                       Exceptions = lists:usort(E1 ++ E2),
+
+                       #state{counter=Max, exceptions=Exceptions}
+               end,
+    orddict:merge(MergeFun, Vector1, Vector2).
 
 %% @doc Accumulate knowledge for an version into vector.
 -spec learn(version(), vector()) -> vector().
@@ -78,6 +109,8 @@ learn({Actor, Count}, Vector) ->
         true ->
             [];
         false ->
+            %% Generate a list of exceptions up to the
+            %% new value for the maximum.
             lists:seq(Counter0 + 1, Max - 1)
     end,
 
@@ -114,5 +147,44 @@ learn_test() ->
 
     B4 = learn({b, 4}, B0),
     ?assertEqual(orddict:from_list([{b, {state, 4, [1, 2, 3]}}]), B4).
+
+merge_with_exceptions_test() ->
+    A0 = new(),
+    B0 = new(),
+
+    %% Generate actor a.
+    {ok, VersionA1, A1} = generate(a, A0),
+    ?assertMatch({a, 1}, VersionA1),
+
+    %% Learn.
+    A4 = learn({a, 4}, A1),
+    ?assertEqual(orddict:from_list([{a, {state, 4, [2, 3]}}]), A4),
+
+    A5 = learn({a, 5}, new()),
+
+    B4 = learn({b, 4}, B0),
+    ?assertEqual(orddict:from_list([{b, {state, 4, [1, 2, 3]}}]), B4),
+
+    A4B4 = merge(A4, B4),
+    ?assertEqual(orddict:from_list([{a, {state, 4, [2, 3]}},
+                                    {b, {state, 4, [1, 2, 3]}}]), A4B4),
+
+    A5B4 = merge(A5, A4B4),
+    ?assertEqual(orddict:from_list([{a, {state, 5, [2, 3]}},
+                                    {b, {state, 4, [1, 2, 3]}}]), A5B4).
+
+merge_test() ->
+    A0 = new(),
+
+    %% Generate actor a.
+    {ok, VersionA1, A1} = generate(a, A0),
+    ?assertMatch({a, 1}, VersionA1),
+
+    %% Generate actor b.
+    {ok, VersionB1, B1} = generate(b, A0),
+    ?assertMatch({b, 1}, VersionB1),
+
+    A1B1 = merge(A1, B1),
+    ?assertEqual(orddict:from_list([{a, {state, 1, []}}, {b, {state, 1, []}}]), A1B1).
 
 -endif.
