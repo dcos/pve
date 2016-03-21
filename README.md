@@ -1,4 +1,8 @@
-# Concise Version Vectors (Predecessor Vectors (with, and without exceptions)
+## Concise Version Vectors
+
+or, Predecessor Vectors (with, and without exceptions)
+
+## Details
 
 An implementation of the ideas in [Concise Version Vectors in WinFS](http://research.microsoft.com/apps/pubs/default.aspx?id=64677) by Dahlia Malkhi and Douglas B. Terry. (DISC 05)
 
