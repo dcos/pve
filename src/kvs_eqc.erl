@@ -113,6 +113,24 @@ put_next(#state{replicas=Replicas0}=S, _Res, [Pid, Key, Value]) ->
     Replicas = lists:keyreplace(Pid, 2, Replicas0, {Actor, Pid, Objects}),
     S#state{replicas=Replicas}.
 
+%% Synchronize
+
+synchronize(Pid, ToPid) ->
+    kvs:synchronize(Pid, ToPid).
+
+synchronize_args(#state{replicas=Replicas}) ->
+    Pids = [P || {_, P, _} <- Replicas],
+    ?LET(Pid, elements(Pids),
+         ?LET(ToPid, elements(Pids -- [Pid]),
+              begin
+                  [Pid, ToPid]
+              end)).
+
+synchronize_pre(#state{status=running}) ->
+    true;
+synchronize_pre(#state{status=init}) ->
+    false.
+
 %% Properties.
 
 prop_sequential() ->

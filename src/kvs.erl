@@ -12,26 +12,28 @@
          terminate/2,
          code_change/3]).
 
+%% Use the vector!
+-define(VECTOR, pve).
+
 %% API
--export([put/3,
+-export([synchronize/2,
+         put/3,
          get/2]).
 
 %% State record.
 -record(state, {actor,
-                knowledge,
+                knowledge :: ?VECTOR:vector(),
                 objects}).
 
 %% Object record.
 -record(object, {version,
+                 predecessors :: ?VECTOR:vector(),
                  payload}).
 
 %% Types.
 -type actor() :: atom().
 -type key()   :: term().
 -type value() :: term().
-
-%% Use the vector!
--define(VECTOR, pv).
 
 %%%===================================================================
 %%% API
@@ -51,6 +53,11 @@ get(Pid, Key) ->
 -spec put(pid(), key(), value()) -> ok.
 put(Pid, Key, Value) ->
     gen_server:call(Pid, {put, Key, Value}, infinity).
+
+%% @doc Synchronize with another KVS.
+-spec synchronize(pid(), pid()) -> ok.
+synchronize(Pid, ToPid) ->
+    gen_server:call(Pid, {synchronize, ToPid}, infinity).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -93,6 +100,17 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
     Objects = dict:store(Key, Object, Objects0),
 
     {reply, ok, State#state{objects=Objects, knowledge=Knowledge}};
+handle_call({synchronize, ToPid}, _From, #state{knowledge=Knowledge0}=State0) ->
+    %% Synchronization is a three-step process.
+    Self = self(),
+
+    %% 1. Send the other node your knowledge set.
+    ToPid ! {synchronize, Self, Knowledge0},
+
+    %% 2. Wait to receive and process objects from other replica.
+    State = receive_and_process_objects(State0),
+
+    {reply, ok, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled messages: ~p", [Msg]),
     {reply, ok, State}.
@@ -105,6 +123,29 @@ handle_cast(Msg, State) ->
 
 %% @private
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
+handle_info({synchronize, FromPid, Knowledge},
+            #state{objects=Objects}=State) ->
+    lager:info("Received request for objects from ~p.", [FromPid]),
+
+    %% Send objects that are not dominated by the incoming vector.
+    dict:fold(fun(Key, #object{version=Version}=Value, Acc) ->
+                    case ?VECTOR:dominates(Version, Knowledge) of
+                        true ->
+                            lager:info("Object dominated; skipping."),
+                            Acc;
+                        false ->
+                            lager:info("Object not dominated; sending!"),
+                            FromPid ! {object, Key, Value},
+                            Acc + 1
+                    end
+              end, 0, Objects),
+
+    %% Reply when sending of objects is complete.
+    FromPid ! done,
+
+    lager:info("Done iterating objects."),
+
+    {noreply, State};
 handle_info(Msg, State) ->
     lager:warning("Unhandled messages: ~p", [Msg]),
     {noreply, State}.
@@ -122,3 +163,82 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+
+%% @doc This is a continuation of the syncrhonization process started in
+%%      the handle_info synchronization callback.
+%%
+receive_and_process_objects(#state{knowledge=Knowledge,
+                                   objects=Objects0}=State) ->
+    receive
+        {object, Key, #object{version=TheirVersion,
+                              predecessors=TheirPredecessors}=Value} ->
+            lager:info("Received object; ~p", [Key]),
+
+            case dict:find(Key, Objects0) of
+
+                %% We have it.
+                {ok, #object{version=OurVersion,
+                             predecessors=OurPredecessors}} ->
+
+                    %% If the incoming object is dominated, ignore it and stop.
+                    case ?VECTOR:dominates(TheirVersion, OurPredecessors) of
+
+                        true ->
+                            %% Ignore object; already dominated.
+                            receive_and_process_objects(State);
+
+                        false ->
+
+                            %% If this dominates, then replace.
+                            case ?VECTOR:dominates(OurVersion,
+                                                   TheirPredecessors) of
+                                true ->
+
+                                    %% Replace object.
+                                    Objects = dict:store(Key,
+                                                         Value,
+                                                         Objects0),
+
+                                    %% Insert incoming version into
+                                    %% replica knowledge.
+                                    Knowledge1 = ?VECTOR:learn(TheirVersion,
+                                                               Knowledge),
+
+                                    %% Merge incoming predecessors into
+                                    %% replica knowledge.
+                                    Knowledge2 = ?VECTOR:merge(TheirPredecessors,
+                                                               Knowledge1),
+
+                                    receive_and_process_objects(State#state{knowledge=Knowledge2,
+                                                                            objects=Objects});
+
+                                %% If not, throw conflict, which is fine
+                                %% for this simple test KVS.
+                                false ->
+                                    exit(conflict)
+
+                            end
+                    end;
+
+                %% We don't have the object locally, so store it with
+                %% predecessors and advance the replica's knowledge
+                %% vector.
+                error ->
+
+                    %% Replace object in store.
+                    Objects = dict:store(Key, Value, Objects0),
+
+                    %% Insert incoming version into replica knowledge.
+                    Knowledge1 = ?VECTOR:learn(TheirVersion, Knowledge),
+
+                    %% Merge incoming predecessors into replica knowledge.
+                    Knowledge2 = ?VECTOR:merge(TheirPredecessors,
+                                               Knowledge1),
+
+                    receive_and_process_objects(State#state{knowledge=Knowledge2,
+                                                            objects=Objects})
+
+            end;
+        done ->
+            ok
+    end.
