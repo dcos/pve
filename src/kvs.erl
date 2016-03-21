@@ -93,8 +93,21 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
     %% Generate the version.
     {ok, Version, Knowledge} = ?VECTOR:generate(Actor, Knowledge0),
 
+    %% If the object already exists, grab it's predecessors vector and
+    %% update with the new version we just created; else use a new
+    %% vector.
+    Predecessors0 = case dict:find(Key, Objects0) of
+        {ok, #object{predecessors=P}} ->
+            P;
+        error ->
+            ?VECTOR:new()
+    end,
+    Predecessors = ?VECTOR:learn(Version, Predecessors0),
+
     %% Generate object payload and store.
-    Object = #object{version=Version, payload=Value},
+    Object = #object{version=Version,
+                     payload=Value,
+                     predecessors=Predecessors},
 
     %% Store updated version of object.
     Objects = dict:store(Key, Object, Objects0),
