@@ -98,6 +98,7 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
         error ->
             ?VECTOR:new()
     end,
+
     %% @todo: The paper says to insert this version with no
     %%        execeptions, but I'm not sure that's actually correct.
     %%
@@ -132,8 +133,14 @@ handle_call({synchronize, ToPid}, _From, #state{knowledge=Knowledge0}=State0) ->
     %% 1. Send the other node your knowledge set.
     ToPid ! {synchronize, Self, Knowledge0},
 
-    %% 2. Wait to receive and process objects from other replica.
-    {Synced, State} = receive_and_process_objects(State0, []),
+    %% 2. Wait to receive their knowledge set.
+    TheirKnowledge = receive
+        {knowledge, K} ->
+            K
+    end,
+
+    %% 3. Wait to receive and process objects from other replica.
+    {Synced, State} = receive_and_process_objects(TheirKnowledge, State0, []),
 
     {reply, {ok, Synced}, State};
 handle_call(Msg, _From, State) ->
@@ -148,8 +155,11 @@ handle_cast(Msg, State) ->
 
 %% @private
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
-handle_info({synchronize, FromPid, Knowledge},
-            #state{objects=Objects}=State) ->
+handle_info({synchronize, FromPid, TheirKnowledge},
+            #state{objects=Objects, knowledge=OurKnowledge}=State) ->
+
+    %% First, send your knowledge set back.
+    FromPid ! {knowledge, OurKnowledge},
 
     %% Send objects that are not dominated by the incoming vector.
     dict:fold(fun(Key, #object{version=Version}=Value, Acc) ->
@@ -188,11 +198,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc This is a continuation of the syncrhonization process started in
 %%      the handle_info synchronization callback.
 %%
-receive_and_process_objects(State0, Synced) ->
+receive_and_process_objects(TheirKnowledge, State0, Synced) ->
     receive
         {object, Key, Value} ->
             State = process_object(State0, Key, Value),
-            receive_and_process_objects(State, Synced ++ [{Key, Value}]);
+            receive_and_process_objects(TheirKnowledge,
+                                        State,
+                                        Synced ++ [{Key, Value}]);
         done ->
             {Synced, State0}
     end.
@@ -273,8 +285,7 @@ process_object(#state{objects=Objects0,
             Knowledge1 = ?VECTOR:learn(TheirVersion, Knowledge),
 
             %% Merge incoming predecessors into replica knowledge.
-            Knowledge2 = ?VECTOR:merge(TheirPredecessors,
-                                       Knowledge1),
+            Knowledge2 = ?VECTOR:merge(TheirPredecessors, Knowledge1),
 
             %% Return udpated state.
             State#state{knowledge=Knowledge2, objects=Objects}
