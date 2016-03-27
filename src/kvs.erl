@@ -162,12 +162,34 @@ handle_info({synchronize, FromPid, TheirKnowledge},
     FromPid ! {knowledge, OurKnowledge},
 
     %% Send objects that are not dominated by the incoming vector.
-    dict:fold(fun(Key, #object{version=Version}=Value, Acc) ->
-                    case ?VECTOR:dominates(Version, Knowledge) of
+    dict:fold(fun(Key, #object{predecessors=Predecessors,
+                               version=Version}=Value, Acc) ->
+                    case ?VECTOR:dominates(Version, TheirKnowledge) of
                         true ->
                             Acc;
                         false ->
-                            FromPid ! {object, Key, Value},
+                            %% If our predecessors are extrinsic to our
+                            %% knowledge, then we do not have to send
+                            %% them.
+                            %%
+                            %% @todo The dominates call here is not
+                            %% correct if we assume that a node does not
+                            %% have all causally preceding version of
+                            %% its predecessors, but the paper expresses
+                            %% the invariant that it should:
+                            %%
+                            %% "Implicitly this means that the set of
+                            %% versions that were dominated by the
+                            %% previous o.predecessors causally precede
+                            %% the new update."
+                            %%
+                            case ?VECTOR:dominates(Predecessors, OurKnowledge) of
+                                true ->
+                                    FromPid ! {object, Key, Value#object{predecessors=[]}};
+                                false ->
+                                    FromPid ! {object, Key, Value}
+                            end,
+
                             Acc + 1
                     end
               end, 0, Objects),
@@ -200,6 +222,12 @@ code_change(_OldVsn, State, _Extra) ->
 %%
 receive_and_process_objects(TheirKnowledge, State0, Synced) ->
     receive
+        {object, Key, #object{predecessors=[]}=Value0} ->
+            Value = Value0#object{predecessors=TheirKnowledge},
+            State = process_object(State0, Key, Value),
+            receive_and_process_objects(TheirKnowledge,
+                                        State,
+                                        Synced ++ [{Key, Value}]);
         {object, Key, Value} ->
             State = process_object(State0, Key, Value),
             receive_and_process_objects(TheirKnowledge,
