@@ -158,28 +158,28 @@ synchronize_next(#state{replicas=_Replicas0}=S, _Res, [_Pid, _ToPid]) ->
 %% Properties.
 
 prop_sequential() ->
-    eqc:quickcheck(?SETUP(fun() ->
-                                 setup(),
-                                 fun teardown/0
-                          end,
-                         ?FORALL(Cmds, commands(?MODULE),
-                                 begin
-                                     {H, S, Res} = run_commands(?MODULE, Cmds),
-                                     pretty_commands(?MODULE, Cmds, {H, S, Res},
-                                        aggregate(command_names(Cmds), Res == ok))
-                                 end))).
+    ?SETUP(fun() ->
+                setup(),
+                fun teardown/0
+         end,
+        ?FORALL(Cmds, commands(?MODULE),
+                begin
+                    {H, S, Res} = run_commands(?MODULE, Cmds),
+                    pretty_commands(?MODULE, Cmds, {H, S, Res},
+                       aggregate(command_names(Cmds), Res == ok))
+                end)).
 
 prop_parallel() ->
-    eqc:quickcheck(?SETUP(fun() ->
-                                 setup(),
-                                 fun teardown/0
-                          end,
-                         ?FORALL(Cmds, parallel_commands(?MODULE),
-                                 begin
-                                     {H, S, Res} = run_parallel_commands(?MODULE, Cmds),
-                                     pretty_commands(?MODULE, Cmds, {H, S, Res},
-                                        aggregate(command_names(Cmds), Res == ok))
-                                 end))).
+    ?SETUP(fun() ->
+                setup(),
+                fun teardown/0
+         end,
+        ?FORALL(Cmds, parallel_commands(?MODULE),
+                begin
+                    {H, S, Res} = run_parallel_commands(?MODULE, Cmds),
+                    pretty_commands(?MODULE, Cmds, {H, S, Res},
+                       aggregate(command_names(Cmds), Res == ok))
+                end)).
 
 setup() ->
     {ok, _Apps} = application:ensure_all_started(lager),
