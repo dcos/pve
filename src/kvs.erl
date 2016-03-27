@@ -130,19 +130,23 @@ handle_call({synchronize, ToPid}, _From, #state{knowledge=Knowledge0}=State0) ->
     %% Synchronization is a three-step process.
     Self = self(),
 
-    %% 1. Send the other node your knowledge set.
+    %% Send the other node your knowledge set.
     ToPid ! {synchronize, Self, Knowledge0},
 
-    %% 2. Wait to receive their knowledge set.
+    %% Wait to receive their knowledge set.
     TheirKnowledge = receive
         {knowledge, K} ->
             K
     end,
 
-    %% 3. Wait to receive and process objects from other replica.
+    %% Wait to receive and process objects from other replica.
     {Synced, State} = receive_and_process_objects(TheirKnowledge, State0, []),
 
-    {reply, {ok, Synced}, State};
+    %% Merge their knowledge into ours at the end of the synchronization
+    %% period.
+    Knowledge = ?VECTOR:merge(TheirKnowledge, Knowledge0),
+
+    {reply, {ok, Synced}, State#state{knowledge=Knowledge}};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call messages: ~p", [Msg]),
     {reply, ok, State}.
