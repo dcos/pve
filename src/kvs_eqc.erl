@@ -15,7 +15,10 @@
                 io:format(user, Str, Args)
         end, P)).
 
+%% State record.
 -record(state, {status, objects, replicas}).
+
+-include("kvs.hrl").
 
 %% Generators.
 
@@ -93,7 +96,8 @@ get_post(#state{replicas=Replicas0}, [Pid, Key], {ok, Value}) ->
 %% Put operation.
 
 put(Pid, Key, Value) ->
-    kvs:put(Pid, Key, Value).
+    {ok, ReturnValue} = kvs:put(Pid, Key, Value),
+    ReturnValue.
 
 put_args(#state{replicas=Replicas}) ->
     Pids = [P || {_, P, _} <- Replicas],
@@ -107,13 +111,13 @@ put_pre(#state{status=init}) ->
 put_pre(#state{status=running}) ->
     true.
 
-put_next(#state{replicas=Replicas0}=S, _Res, [Pid, Key, Value]) ->
+put_next(#state{replicas=Replicas0}=S, ReturnValue, [Pid, Key, _Value]) ->
     {Actor, Pid, Objects0} = lists:keyfind(Pid, 2, Replicas0),
-    Objects = dict:store(Key, Value, Objects0),
+    Objects = dict:store(Key, ReturnValue, Objects0),
     Replicas = lists:keyreplace(Pid, 2, Replicas0, {Actor, Pid, Objects}),
     S#state{replicas=Replicas}.
 
-%% Synchronize
+%% Synchronize.
 
 synchronize(Pid, ToPid) ->
     kvs:synchronize(Pid, ToPid).
@@ -130,6 +134,26 @@ synchronize_pre(#state{status=running}) ->
     true;
 synchronize_pre(#state{status=init}) ->
     false.
+
+synchronize_next(#state{replicas=Replicas0}=S, {ok, Synced}, [Pid, _ToPid]) ->
+    {Actor, Pid, Objects0} = lists:keyfind(Pid, 2, Replicas0),
+    Objects = lists:foldl(fun({Key, #object{timestamp=Timestamp}=Object}, DictAcc) ->
+                                case dict:find(Key, DictAcc) of
+                                    {ok, #object{timestamp=CurrentTimestamp}} ->
+                                        case CurrentTimestamp > Timestamp of
+                                            true ->
+                                                DictAcc;
+                                            false ->
+                                                dict:store(Key, Object, DictAcc)
+                                        end;
+                                    _ ->
+                                        dict:store(Key, Object, DictAcc)
+                                end
+                          end, Objects0, Synced),
+    Replicas = lists:keyreplace(Pid, 2, Replicas0, {Actor, Pid, Objects}),
+    S#state{replicas=Replicas};
+synchronize_next(#state{replicas=_Replicas0}=S, _Res, [_Pid, _ToPid]) ->
+    S.
 
 %% Properties.
 

@@ -12,28 +12,17 @@
          terminate/2,
          code_change/3]).
 
-%% Use the vector!
--define(VECTOR, pve).
-
 %% API
 -export([synchronize/2,
          put/3,
          get/2]).
 
+-include("kvs.hrl").
+
 %% State record.
 -record(state, {actor,
                 knowledge :: ?VECTOR:vector(),
                 objects}).
-
-%% Object record.
--record(object, {version,
-                 predecessors :: ?VECTOR:vector(),
-                 payload}).
-
-%% Types.
--type actor() :: atom().
--type key()   :: term().
--type value() :: term().
 
 %%%===================================================================
 %%% API
@@ -45,17 +34,17 @@ start_link(Actor) ->
     gen_server:start_link(?MODULE, [Actor], []).
 
 %% @doc Get a value from the KVS.
--spec get(pid(), key()) -> value().
+-spec get(pid(), key()) -> {ok, value()}.
 get(Pid, Key) ->
     gen_server:call(Pid, {get, Key}, infinity).
 
 %% @doc Store a value in the KVS.
--spec put(pid(), key(), value()) -> ok.
+-spec put(pid(), key(), value()) -> {ok, value()}.
 put(Pid, Key, Value) ->
     gen_server:call(Pid, {put, Key, Value}, infinity).
 
 %% @doc Synchronize with another KVS.
--spec synchronize(pid(), pid()) -> ok.
+-spec synchronize(pid(), pid()) -> {ok, [value()]}.
 synchronize(Pid, ToPid) ->
     gen_server:call(Pid, {synchronize, ToPid}, infinity).
 
@@ -81,10 +70,10 @@ init([Actor]) ->
 %% @private
 handle_call({get, Key}, _From, #state{objects=Objects0}=State) ->
     Result = case dict:find(Key, Objects0) of
-        {ok, #object{payload=Payload}} ->
-            {ok, Payload};
+        {ok, Object} ->
+            {ok, Object};
         error ->
-             {ok, not_found}
+            {ok, not_found}
     end,
     {reply, Result, State};
 handle_call({put, Key, Value}, _From, #state{actor=Actor,
@@ -104,15 +93,19 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
     end,
     Predecessors = ?VECTOR:learn(Version, Predecessors0),
 
+    %% Generate timestamp.
+    Timestamp = os:timestamp(),
+
     %% Generate object payload and store.
     Object = #object{version=Version,
+                     timestamp=Timestamp,
                      payload=Value,
                      predecessors=Predecessors},
 
     %% Store updated version of object.
     Objects = dict:store(Key, Object, Objects0),
 
-    {reply, ok, State#state{objects=Objects, knowledge=Knowledge}};
+    {reply, {ok, Object}, State#state{objects=Objects, knowledge=Knowledge}};
 handle_call({synchronize, ToPid}, _From, #state{knowledge=Knowledge0}=State0) ->
     %% Synchronization is a three-step process.
     Self = self(),
@@ -121,9 +114,9 @@ handle_call({synchronize, ToPid}, _From, #state{knowledge=Knowledge0}=State0) ->
     ToPid ! {synchronize, Self, Knowledge0},
 
     %% 2. Wait to receive and process objects from other replica.
-    State = receive_and_process_objects(State0),
+    {Synced, State} = receive_and_process_objects(State0, []),
 
-    {reply, ok, State};
+    {reply, {ok, Synced}, State};
 handle_call(Msg, _From, State) ->
     lager:warning("Unhandled call messages: ~p", [Msg]),
     {reply, ok, State}.
@@ -138,16 +131,13 @@ handle_cast(Msg, State) ->
 -spec handle_info(term(), #state{}) -> {noreply, #state{}}.
 handle_info({synchronize, FromPid, Knowledge},
             #state{objects=Objects}=State) ->
-    lager:info("Received request for objects from ~p.", [FromPid]),
 
     %% Send objects that are not dominated by the incoming vector.
     dict:fold(fun(Key, #object{version=Version}=Value, Acc) ->
                     case ?VECTOR:dominates(Version, Knowledge) of
                         true ->
-                            lager:info("Object dominated; skipping."),
                             Acc;
                         false ->
-                            lager:info("Object not dominated; sending!"),
                             FromPid ! {object, Key, Value},
                             Acc + 1
                     end
@@ -155,8 +145,6 @@ handle_info({synchronize, FromPid, Knowledge},
 
     %% Reply when sending of objects is complete.
     FromPid ! done,
-
-    lager:info("Done iterating objects."),
 
     {noreply, State};
 handle_info(Msg, State) ->
@@ -169,7 +157,8 @@ terminate(_Reason, _State) ->
     ok.
 
 %% @private
--spec code_change(term() | {down, term()}, #state{}, term()) -> {ok, #state{}}.
+-spec code_change(term() | {down, term()}, #state{}, term()) ->
+    {ok, #state{}}.
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
@@ -180,14 +169,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% @doc This is a continuation of the syncrhonization process started in
 %%      the handle_info synchronization callback.
 %%
-receive_and_process_objects(State0) ->
+receive_and_process_objects(State0, Synced) ->
     receive
         {object, Key, Value} ->
-            lager:info("Received object; ~p", [Key]),
             State = process_object(State0, Key, Value),
-            receive_and_process_objects(State);
+            receive_and_process_objects(State, Synced ++ [{Key, Value}]);
         done ->
-            State0
+            {Synced, State0}
     end.
 
 %% @private
@@ -195,21 +183,26 @@ process_object(#state{objects=Objects0,
                       knowledge=Knowledge}=State,
                Key,
                #object{version=TheirVersion,
-                       predecessors=TheirPredecessors}=Value) ->
+                       timestamp=TheirTimestamp,
+                       predecessors=TheirPredecessors}=Theirs) ->
     case dict:find(Key, Objects0) of
         %% We have it.
-        {ok, #object{version=OurVersion, predecessors=OurPredecessors}} ->
+        {ok, #object{version=OurVersion,
+                     timestamp=OurTimestamp,
+                     predecessors=OurPredecessors}=_Ours} ->
+
             %% If the incoming object is dominated, ignore it and stop.
             case ?VECTOR:dominates(TheirVersion, OurPredecessors) of
                 true ->
                     %% Ignore object; already dominated.
                     State;
                 false ->
+
                     %% If this dominates, then replace.
                     case ?VECTOR:dominates(OurVersion, TheirPredecessors) of
                         true ->
                             %% Replace object.
-                            Objects = dict:store(Key, Value, Objects0),
+                            Objects = dict:store(Key, Theirs, Objects0),
 
                             %% Insert incoming version into replica knowledge.
                             Knowledge1 = ?VECTOR:learn(TheirVersion, Knowledge),
@@ -220,9 +213,32 @@ process_object(#state{objects=Objects0,
                             %% Return updated state.
                             State#state{knowledge=Knowledge2, objects=Objects};
 
-                        %% If not, throw conflict, which is fine for this simple test KVS.
+                        %% If not, take object with the highest
+                        %% timestamp and merge versions, and merge
+                        %% predecessor vectors.
+                        %%
                         false ->
-                            exit(conflict)
+                            %% Always incorporate their versions into
+                            %% our knowledge, as a requirement for the
+                            %% model.
+
+                            %% Insert incoming version into replica knowledge.
+                            Knowledge1 = ?VECTOR:learn(TheirVersion, Knowledge),
+
+                            %% Merge incoming predecessors into replica knowledge.
+                            Knowledge2 = ?VECTOR:merge(TheirPredecessors, Knowledge1),
+
+                            Objects = case OurTimestamp < TheirTimestamp of
+                                true ->
+                                    %% Replace object with theirs.
+                                    dict:store(Key, Theirs, Objects0);
+                                false ->
+                                    %% Keep our objects.
+                                    Objects0
+                            end,
+
+                            %% Return updated state.
+                            State#state{knowledge=Knowledge2, objects=Objects}
                     end
             end;
 
@@ -232,7 +248,7 @@ process_object(#state{objects=Objects0,
         error ->
 
             %% Replace object in store.
-            Objects = dict:store(Key, Value, Objects0),
+            Objects = dict:store(Key, Theirs, Objects0),
 
             %% Insert incoming version into replica knowledge.
             Knowledge1 = ?VECTOR:learn(TheirVersion, Knowledge),
