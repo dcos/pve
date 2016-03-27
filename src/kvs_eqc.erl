@@ -169,6 +169,18 @@ prop_sequential() ->
                                         aggregate(command_names(Cmds), Res == ok))
                                  end))).
 
+prop_parallel() ->
+    eqc:quickcheck(?SETUP(fun() ->
+                                 setup(),
+                                 fun teardown/0
+                          end,
+                         ?FORALL(Cmds, parallel_commands(?MODULE),
+                                 begin
+                                     {H, S, Res} = run_parallel_commands(?MODULE, Cmds),
+                                     pretty_commands(?MODULE, Cmds, {H, S, Res},
+                                        aggregate(command_names(Cmds), Res == ok))
+                                 end))).
+
 setup() ->
     {ok, _Apps} = application:ensure_all_started(lager),
     ok.
