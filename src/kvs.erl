@@ -86,11 +86,30 @@ handle_call({put, Key, Value}, _From, #state{actor=Actor,
     %% update with the new version we just created; else use a new
     %% vector.
     Predecessors0 = case dict:find(Key, Objects0) of
+        {ok, #object{predecessors=[]}} ->
+            %% If the predecessors are empty, causally precedes the
+            %% previous update, so the predecessor vector can remain
+            %% empty (or at bottom.)
+            [];
         {ok, #object{predecessors=P}} ->
+            %% If not, insert the new version into the predecessor
+            %% vector, without any execption (we do that below.)
             P;
         error ->
             ?VECTOR:new()
     end,
+    %% @todo: The paper says to insert this version with no
+    %%        execeptions, but I'm not sure that's actually correct.
+    %%
+    %%        "Implicitly this means that the set of versions that were
+    %%        dominated by the previous o.predecessors causally precede
+    %%        the new update."
+    %%
+    %%        But, won't they always causally precede the new update
+    %%        regardless of whether or not we insert no execeptions,
+    %%        given the predecessor vector will be the previous
+    %%        predecessors merged with the new version?  Seems so.
+    %%
     Predecessors = ?VECTOR:learn(Version, Predecessors0),
 
     %% Generate timestamp.
