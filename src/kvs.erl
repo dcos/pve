@@ -2,7 +2,7 @@
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
 %% @doc In a production implementation of a KVS, ideally you'd want a
-%%      periodic task that would go through the objects in the database 
+%%      periodic task that would go through the objects in the database
 %%      and remove predecessor vectors from objects that later no longer
 %%      needed to be stored because knowledge was not extrinsic.
 
@@ -286,9 +286,20 @@ process_object(#state{objects=Objects0,
                         %% predecessor vectors.
                         %%
                         false ->
-                            %% Always incorporate their versions into
-                            %% our knowledge, as a requirement for the
-                            %% model.
+                            %% This is where a conflict can occur.
+                            %% Sometimes, we need to replace knowledge
+                            %% with the other nodes extrinsic sets if we
+                            %% want to store conflicting versions.
+                            %
+                            %% If we want to arbitrate to
+                            %% last-writer-wins, we don't.
+                            %%
+                            %% If we have causal+ or CRDT semantics, we
+                            %% can always merge and advance the version
+                            %% and predecessors.
+                            %%
+                            %% This is up to the person implementing the
+                            %% KVS.
 
                             %% Insert incoming version into replica knowledge.
                             Knowledge1 = ?VECTOR:learn(TheirVersion, Knowledge),
