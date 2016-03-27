@@ -1,6 +1,11 @@
 -module(kvs).
 -author("Christopher Meiklejohn <christopher.meiklejohn@gmail.com>").
 
+%% @doc In a production implementation of a KVS, ideally you'd want a
+%%      periodic task that would go through the objects in the database 
+%%      and remove predecessor vectors from objects that later no longer
+%%      needed to be stored because knowledge was not extrinsic.
+
 %% API
 -export([start_link/1]).
 
